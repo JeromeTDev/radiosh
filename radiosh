@@ -1,43 +1,51 @@
 #!/usr/bin/env bash
 
-# 1. Variablen definieren
+# 1. Define Variables
 BINARY_NAME="radiosh"
 INSTALL_DIR="$HOME/.local/bin"
 DEST="$INSTALL_DIR/$BINARY_NAME"
 
-# 2. Installations-Logik
+# 2. Installation Logic
 if [[ "$1" == "--install" ]]; then
-  echo "Installiere $BINARY_NAME..."
+  echo "Installing $BINARY_NAME..."
 
-  # Ordner erstellen falls nicht vorhanden
+  # Create directory if it doesn't exist
   mkdir -p "$INSTALL_DIR"
 
-  # $0 ist die Datei selbst, egal wie sie gerade heißt
+  # $0 is the file itself, regardless of its current name
   if cp "$0" "$DEST"; then
     chmod +x "$DEST"
-    echo "✅ Erfolgreich nach $DEST kopiert."
+    echo "✅ Successfully copied to $DEST."
 
-    # Prüfen ob im PATH (Shell-unabhängig)
+    # Check if in PATH (Shell-agnostic)
     if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-      echo "⚠️  HINWEIS: $INSTALL_DIR ist noch nicht in deinem PATH."
-      echo "Füge dies zu deiner .bashrc oder .config/fish/config.fish hinzu:"
+      echo "⚠️  NOTE: $INSTALL_DIR is not in your PATH yet."
+      echo "Add this to your .bashrc or .config/fish/config.fish:"
       echo "  Bash/Zsh: export PATH=\"\$HOME/.local/bin:\$PATH\""
       echo "  Fish:     fish_add_path \$HOME/.local/bin"
     else
-      echo "🚀 $BINARY_NAME ist bereit und im PATH gefunden!"
+      echo "🚀 $BINARY_NAME is ready and found in your PATH!"
     fi
   else
-    echo "❌ Fehler beim Kopieren nach $DEST"
+    echo "❌ Error copying to $DEST"
     exit 1
   fi
   exit 0
 fi
 
+# 3. Check Dependencies
+for tool in fzf mpv jq curl; do
+  if ! command -v "$tool" &>/dev/null; then
+    echo "Error: '$tool' is not installed. Please install it first."
+    exit 1
+  fi
+done
+
 FAVORITES_FILE="$HOME/.config/mpv/radio.m3u"
 mkdir -p "$(dirname "$FAVORITES_FILE")"
 touch "$FAVORITES_FILE"
 
-# FZF Optionen als Array (Vim-Hjkl Steuerung)
+# FZF Options (Vim-style Hjkl navigation)
 FZF_OPTS=(
   --bind 'h:up,j:down,k:up,l:accept'
   --reverse
@@ -45,39 +53,45 @@ FZF_OPTS=(
   --ansi
 )
 
-# fzf-Aufruf: Favoriten + "Online suchen"
+# Initial fzf call: Favorites + "Online Search"
 CHOICE=$( (
   cat "$FAVORITES_FILE"
   echo "__ONLINE_SEARCH__"
-) | fzf --prompt="Wähle Sender oder Online-Suche: " "${FZF_OPTS[@]}")
+) | fzf --prompt="Select Station or Online Search: " "${FZF_OPTS[@]}")
+
+# Exit if no choice made (ESC)
+[ -z "$CHOICE" ] && exit 0
 
 if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
-  read -rp "Suchbegriff: " QUERY
-  # Suche über Radio-Browser API, sortiert nach votes (Beliebtheit)
-  CHOICE=$(curl -s "https://de1.api.radio-browser.info/json/stations/search?name=$QUERY&limit=20" |
-    jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
-    fzf --prompt="Online-Sender wählen: " "${FZF_OPTS[@]}")
+  read -rp "Search Query: " QUERY
+  
+  # URL encode the search query
+  QUERY_ENC=$(echo "$QUERY" | jq -sRr @uri)
 
-  # Prüfen, ob Auswahl gültig
+  # Search via Radio-Browser API, sorted by popularity (votes)
+  CHOICE=$(curl -s "https://de1.api.radio-browser.info/json/stations/search?name=$QUERY_ENC&limit=20" |
+    jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
+    fzf --prompt="Select Online Station: " "${FZF_OPTS[@]}")
+
+  # Validate selection
   URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
   if [ -n "$URL" ]; then
-    # mpv starten
-    echo "Starte $CHOICE …"
+    echo "Starting $CHOICE ..."
     mpv "$URL"
 
-    # Nach Favoriten hinzufügen fragen
-    read -rp "In Favoriten speichern? (y/N) " RESP
+    # Ask to add to favorites
+    read -rp "Add to favorites? (y/N) " RESP
     if [[ "$RESP" =~ ^[Yy]$ ]]; then
-      # Duplikate verhindern
+      # Prevent duplicates
       grep -Fxq "$CHOICE" "$FAVORITES_FILE" || echo "$CHOICE" >>"$FAVORITES_FILE"
-      echo "Hinzugefügt!"
+      echo "Added!"
     fi
   fi
 else
-  # Favorit direkt abspielen
+  # Play favorite directly
   URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
   if [ -n "$URL" ]; then
-    echo "Starte $CHOICE …"
+    echo "Starting $CHOICE ..."
     mpv "$URL"
   fi
 fi
