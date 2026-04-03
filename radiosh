@@ -1,13 +1,37 @@
 #!/usr/bin/env bash
-# Terminal Radio Player mit Favoritenverwaltung + Vim-Steuerung + Beliebtheits-Sortierung
 
-# Prüfen, ob benötigte Tools installiert sind
-for tool in fzf mpv jq curl; do
-    if ! command -v "$tool" &> /dev/null; then
-        echo "Fehler: '$tool' ist nicht installiert. Bitte installiere es zuerst."
-        exit 1
+# 1. Variablen definieren
+BINARY_NAME="radiosh"
+INSTALL_DIR="$HOME/.local/bin"
+DEST="$INSTALL_DIR/$BINARY_NAME"
+
+# 2. Installations-Logik
+if [[ "$1" == "--install" ]]; then
+  echo "Installiere $BINARY_NAME..."
+
+  # Ordner erstellen falls nicht vorhanden
+  mkdir -p "$INSTALL_DIR"
+
+  # $0 ist die Datei selbst, egal wie sie gerade heißt
+  if cp "$0" "$DEST"; then
+    chmod +x "$DEST"
+    echo "✅ Erfolgreich nach $DEST kopiert."
+
+    # Prüfen ob im PATH (Shell-unabhängig)
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+      echo "⚠️  HINWEIS: $INSTALL_DIR ist noch nicht in deinem PATH."
+      echo "Füge dies zu deiner .bashrc oder .config/fish/config.fish hinzu:"
+      echo "  Bash/Zsh: export PATH=\"\$HOME/.local/bin:\$PATH\""
+      echo "  Fish:     fish_add_path \$HOME/.local/bin"
+    else
+      echo "🚀 $BINARY_NAME ist bereit und im PATH gefunden!"
     fi
-done
+  else
+    echo "❌ Fehler beim Kopieren nach $DEST"
+    exit 1
+  fi
+  exit 0
+fi
 
 FAVORITES_FILE="$HOME/.config/mpv/radio.m3u"
 mkdir -p "$(dirname "$FAVORITES_FILE")"
