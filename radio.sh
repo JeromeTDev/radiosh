@@ -1,51 +1,70 @@
 #!/usr/bin/env bash
-# Terminal Radio Player mit Favoritenverwaltung + Vim-Steuerung + Beliebtheits-Sortierung
+# Name: radiosh
+
+# 1. Installations-Logik (Optionaler Aufruf via: ./radiosh --install)
+if [[ "$1" == "--install" ]]; then
+    DEST="$HOME/.local/bin/radiosh"
+    mkdir -p "$(dirname "$DEST")"
+    cp "$0" "$DEST"
+    chmod +x "$DEST"
+    echo "radiosh wurde nach $DEST kopiert."
+    echo "Stelle sicher, dass $HOME/.local/bin in deinem PATH ist."
+    exit 0
+fi
+
+# 2. Abhängigkeiten prüfen
+for tool in fzf mpv jq curl; do
+    if ! command -v "$tool" &> /dev/null; then
+        echo "Fehler: '$tool' ist nicht installiert."
+        exit 1
+    fi
+done
 
 FAVORITES_FILE="$HOME/.config/mpv/radio.m3u"
 mkdir -p "$(dirname "$FAVORITES_FILE")"
 touch "$FAVORITES_FILE"
 
-# FZF Optionen als Array (Vim-Hjkl Steuerung)
+# FZF Optionen
 FZF_OPTS=(
-  --bind 'h:up,j:down,k:up,l:accept'
-  --reverse
-  --height 40%
-  --ansi
+    --bind 'h:up,j:down,k:up,l:accept'
+    --reverse
+    --height 40%
+    --ansi
 )
 
-# fzf-Aufruf: Favoriten + "Online suchen"
+# Hauptmenü
 CHOICE=$( (
-  cat "$FAVORITES_FILE"
-  echo "__ONLINE_SEARCH__"
+    cat "$FAVORITES_FILE"
+    echo "__ONLINE_SEARCH__"
 ) | fzf --prompt="Wähle Sender oder Online-Suche: " "${FZF_OPTS[@]}")
 
+# Abbruch bei ESC
+[ -z "$CHOICE" ] && exit 0
+
 if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
-  read -rp "Suchbegriff: " QUERY
-  # Suche über Radio-Browser API, sortiert nach votes (Beliebtheit)
-  CHOICE=$(curl -s "https://de1.api.radio-browser.info/json/stations/search?name=$QUERY&limit=20" |
-    jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
-    fzf --prompt="Online-Sender wählen: " "${FZF_OPTS[@]}")
+    read -rp "Suchbegriff: " QUERY
+    # Leerzeichen in URL encodieren
+    QUERY_ENC=$(echo "$QUERY" | jq -sRr @uri)
+    
+    CHOICE=$(curl -s "https://de1.api.radio-browser.info/json/stations/search?name=$QUERY_ENC&limit=20" |
+        jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
+        fzf --prompt="Online-Sender wählen: " "${FZF_OPTS[@]}")
 
-  # Prüfen, ob Auswahl gültig
-  URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
-  if [ -n "$URL" ]; then
-    # mpv starten
-    echo "Starte $CHOICE …"
-    mpv "$URL"
+    URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
+    if [ -n "$URL" ]; then
+        echo "Starte $CHOICE …"
+        mpv "$URL"
 
-    # Nach Favoriten hinzufügen fragen
-    read -rp "In Favoriten speichern? (y/N) " RESP
-    if [[ "$RESP" =~ ^[Yy]$ ]]; then
-      # Duplikate verhindern
-      grep -Fxq "$CHOICE" "$FAVORITES_FILE" || echo "$CHOICE" >>"$FAVORITES_FILE"
-      echo "Hinzugefügt!"
+        read -rp "In Favoriten speichern? (y/N) " RESP
+        if [[ "$RESP" =~ ^[Yy]$ ]]; then
+            grep -Fxq "$CHOICE" "$FAVORITES_FILE" || echo "$CHOICE" >>"$FAVORITES_FILE"
+            echo "Hinzugefügt!"
+        fi
     fi
-  fi
 else
-  # Favorit direkt abspielen
-  URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
-  if [ -n "$URL" ]; then
-    echo "Starte $CHOICE …"
-    mpv "$URL"
-  fi
+    URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
+    if [ -n "$URL" ]; then
+        echo "Starte $CHOICE …"
+        mpv "$URL"
+    fi
 fi
