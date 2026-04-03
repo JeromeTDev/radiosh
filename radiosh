@@ -5,6 +5,16 @@ BINARY_NAME="radiosh"
 INSTALL_DIR="$HOME/.local/bin"
 DEST="$INSTALL_DIR/$BINARY_NAME"
 
+draw_box() {
+  local msg=" 📻 Now Playing: $1 "
+  local len=${#msg}
+  local edge=$(printf '═%.0s' $(seq 1 $len))
+
+  echo -e "\n\e[1;32m╔${edge}╗"
+  echo -e "║${msg}║"
+  echo -e "╚${edge}╝\e[0m\n"
+}
+
 # 2. Installation Logic
 if [[ "$1" == "--install" ]]; then
   echo "Installing $BINARY_NAME..."
@@ -64,34 +74,30 @@ CHOICE=$( (
 
 if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
   read -rp "Search Query: " QUERY
-  
-  # URL encode the search query
   QUERY_ENC=$(echo "$QUERY" | jq -sRr @uri)
 
-  # Search via Radio-Browser API, sorted by popularity (votes)
   CHOICE=$(curl -s "https://de1.api.radio-browser.info/json/stations/search?name=$QUERY_ENC&limit=20" |
     jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
     fzf --prompt="Select Online Station: " "${FZF_OPTS[@]}")
 
-  # Validate selection
   URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
   if [ -n "$URL" ]; then
-    echo "Starting $CHOICE ..."
-    mpv "$URL"
+    draw_box "$CHOICE" # Hier auch die Box anzeigen!
+    mpv --no-video "$URL"
 
-    # Ask to add to favorites
     read -rp "Add to favorites? (y/N) " RESP
     if [[ "$RESP" =~ ^[Yy]$ ]]; then
-      # Prevent duplicates
       grep -Fxq "$CHOICE" "$FAVORITES_FILE" || echo "$CHOICE" >>"$FAVORITES_FILE"
       echo "Added!"
     fi
   fi
 else
   # Play favorite directly
+  # WICHTIG: Hier müssen wir die URL erst aus CHOICE extrahieren!
   URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
+  
   if [ -n "$URL" ]; then
-    echo "Starting $CHOICE ..."
-    mpv "$URL"
+    draw_box "$CHOICE"
+    mpv --no-video "$URL"
   fi
 fi
