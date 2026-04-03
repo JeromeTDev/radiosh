@@ -18,23 +18,17 @@ draw_box() {
 # 2. Installation Logic
 if [[ "$1" == "--install" ]]; then
   echo "Installing $BINARY_NAME..."
-
-  # Create directory if it doesn't exist
   mkdir -p "$INSTALL_DIR"
-
-  # $0 is the file itself, regardless of its current name
   if cp "$0" "$DEST"; then
     chmod +x "$DEST"
     echo "✅ Successfully copied to $DEST."
-
-    # Check if in PATH (Shell-agnostic)
     if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
       echo "⚠️  NOTE: $INSTALL_DIR is not in your PATH yet."
       echo "Add this to your .bashrc or .config/fish/config.fish:"
       echo "  Bash/Zsh: export PATH=\"\$HOME/.local/bin:\$PATH\""
       echo "  Fish:     fish_add_path \$HOME/.local/bin"
     else
-      echo "🚀 $BINARY_NAME is ready and found in your PATH!"
+      echo "🚀 $BINARY_NAME is ready!"
     fi
   else
     echo "❌ Error copying to $DEST"
@@ -46,7 +40,7 @@ fi
 # 3. Check Dependencies
 for tool in fzf mpv jq curl; do
   if ! command -v "$tool" &>/dev/null; then
-    echo "Error: '$tool' is not installed. Please install it first."
+    echo "Error: '$tool' is not installed."
     exit 1
   fi
 done
@@ -55,7 +49,6 @@ FAVORITES_FILE="$HOME/.config/mpv/radio.m3u"
 mkdir -p "$(dirname "$FAVORITES_FILE")"
 touch "$FAVORITES_FILE"
 
-# FZF Options (Vim-style Hjkl navigation)
 FZF_OPTS=(
   --bind 'h:up,j:down,k:up,l:accept'
   --reverse
@@ -63,13 +56,12 @@ FZF_OPTS=(
   --ansi
 )
 
-# Initial fzf call: Favorites + "Online Search"
+# Main Menu
 CHOICE=$( (
   cat "$FAVORITES_FILE"
   echo "__ONLINE_SEARCH__"
 ) | fzf --prompt="Select Station or Online Search: " "${FZF_OPTS[@]}")
 
-# Exit if no choice made (ESC)
 [ -z "$CHOICE" ] && exit 0
 
 if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
@@ -80,10 +72,12 @@ if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
     jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
     fzf --prompt="Select Online Station: " "${FZF_OPTS[@]}")
 
+  NAME=$(echo "$CHOICE" | cut -d'|' -f1 | xargs)
   URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
+
   if [ -n "$URL" ]; then
-    draw_box "$CHOICE" # Hier auch die Box anzeigen!
-    mpv --no-video "$URL"
+    draw_box "$NAME"
+    mpv --no-video --really-quiet --terminal=yes --term-playing-msg="🎵 Song: \${metadata/by-key/icy-title}" "$URL"
 
     read -rp "Add to favorites? (y/N) " RESP
     if [[ "$RESP" =~ ^[Yy]$ ]]; then
@@ -93,11 +87,11 @@ if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
   fi
 else
   # Play favorite directly
-  # WICHTIG: Hier müssen wir die URL erst aus CHOICE extrahieren!
+  NAME=$(echo "$CHOICE" | cut -d'|' -f1 | xargs)
   URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
   
   if [ -n "$URL" ]; then
-    draw_box "$CHOICE"
-    mpv --no-video "$URL"
+    draw_box "$NAME"
+    mpv --no-video --really-quiet --terminal=yes --term-playing-msg="🎵 Song: \${metadata/by-key/icy-title}" "$URL"
   fi
 fi
