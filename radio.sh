@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+# Terminal Radio Player mit Favoritenverwaltung + Vim-Steuerung + Beliebtheits-Sortierung
+
+FAVORITES_FILE="$HOME/.config/mpv/radio.m3u"
+mkdir -p "$(dirname "$FAVORITES_FILE")"
+touch "$FAVORITES_FILE"
+
+# FZF Optionen als Array (Vim-Hjkl Steuerung)
+FZF_OPTS=(
+  --bind 'h:up,j:down,k:up,l:accept'
+  --reverse
+  --height 40%
+  --ansi
+)
+
+# fzf-Aufruf: Favoriten + "Online suchen"
+CHOICE=$( (
+  cat "$FAVORITES_FILE"
+  echo "__ONLINE_SEARCH__"
+) | fzf --prompt="Wähle Sender oder Online-Suche: " "${FZF_OPTS[@]}")
+
+if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
+  read -rp "Suchbegriff: " QUERY
+  # Suche über Radio-Browser API, sortiert nach votes (Beliebtheit)
+  CHOICE=$(curl -s "https://de1.api.radio-browser.info/json/stations/search?name=$QUERY&limit=20" |
+    jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
+    fzf --prompt="Online-Sender wählen: " "${FZF_OPTS[@]}")
+
+  # Prüfen, ob Auswahl gültig
+  URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
+  if [ -n "$URL" ]; then
+    # mpv starten
+    echo "Starte $CHOICE …"
+    mpv "$URL"
+
+    # Nach Favoriten hinzufügen fragen
+    read -rp "In Favoriten speichern? (y/N) " RESP
+    if [[ "$RESP" =~ ^[Yy]$ ]]; then
+      # Duplikate verhindern
+      grep -Fxq "$CHOICE" "$FAVORITES_FILE" || echo "$CHOICE" >>"$FAVORITES_FILE"
+      echo "Hinzugefügt!"
+    fi
+  fi
+else
+  # Favorit direkt abspielen
+  URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
+  if [ -n "$URL" ]; then
+    echo "Starte $CHOICE …"
+    mpv "$URL"
+  fi
+fi
