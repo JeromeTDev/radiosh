@@ -4,7 +4,7 @@ A minimalist, lightning-fast terminal radio player written in pure Bash.
 
 Features a searchable station database, favorite management, and Vim-style navigation.
 
-![Corne Keyboard](blob:https://www.reddit.com/df7a821a-7a02-4fe1-a69e-4282965de0a8)
+![Corne Keyboard]([blob:https://www.reddit.com/df7a821a-7a02-4fe1-a69e-4282965de0a8](https://github.com/user-attachments/assets/7cf754f1-b1df-49b7-8327-63cff15bf162))
 
 ## Features
 
