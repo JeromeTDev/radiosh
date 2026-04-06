@@ -6,7 +6,7 @@ INSTALL_DIR="$HOME/.local/bin"
 DEST="$INSTALL_DIR/$BINARY_NAME"
 
 draw_box() {
-  local msg=" 📻 Now Playing: $1 "
+  local msg="Now Playing: $1"
   local len=${#msg}
   local edge=$(printf '═%.0s' $(seq 1 $len))
 
@@ -89,7 +89,7 @@ else
   # Play favorite directly
   NAME=$(echo "$CHOICE" | cut -d'|' -f1 | xargs)
   URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
-  
+
   if [ -n "$URL" ]; then
     draw_box "$NAME"
     mpv --no-video --really-quiet --terminal=yes --term-playing-msg="🎵 Song: \${metadata/by-key/icy-title}" "$URL"
