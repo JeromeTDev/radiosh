@@ -4,7 +4,7 @@ A minimalist, lightning-fast terminal radio player written in pure Bash.
 
 Features a searchable station database, favorite management, and Vim-style navigation.
 
-![image](https://github.com/user-attachments/assets/7cf754f1-b1df-49b7-8327-63cff15bf162)
+![image](https://github.com/user-attachments/assets/4f72d4eb-436f-470d-b2ff-f29aaaeed482)
 
 ## Features
 
