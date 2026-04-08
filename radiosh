@@ -66,9 +66,17 @@ CHOICE=$( (
 
 if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
   read -rp "Search Query: " QUERY
-  QUERY_ENC=$(echo "$QUERY" | jq -sRr @uri)
+  QUERY_ENC=$(jq -rn --arg q "$QUERY" '$q | @uri')
 
-  CHOICE=$(curl -s "https://de1.api.radio-browser.info/json/stations/search?name=$QUERY_ENC&limit=20" |
+  API_URL="https://de1.api.radio-browser.info/json/stations/search?name=$QUERY_ENC&limit=20"
+  API_RESULT=$(curl -s --max-time 10 "$API_URL")
+
+  if [ -z "$API_RESULT" ] || [ "$API_RESULT" = "[]" ]; then
+    echo "Error: No results or API unreachable. Check your internet connection."
+    exit 1
+  fi
+
+  CHOICE=$(echo "$API_RESULT" |
     jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
     fzf --prompt="Select Online Station: " "${FZF_OPTS[@]}")
 
