@@ -6,13 +6,10 @@ INSTALL_DIR="$HOME/.local/bin"
 DEST="$INSTALL_DIR/$BINARY_NAME"
 
 draw_box() {
-  local msg="Now Playing: $1"
+  local msg=" Now Playing: $1 "
   local len=${#msg}
   local edge=$(printf '═%.0s' $(seq 1 $len))
-
-  echo -e "\n\e[1;32m╔${edge}╗"
-  echo -e "║${msg}║"
-  echo -e "╚${edge}╝\e[0m\n"
+  printf '\n\033[1;32m╔%s╗\n║%s║\n╚%s╝\033[0m\n' "$edge" "$msg" "$edge"
 }
 
 # 2. Installation Logic
