@@ -1,6 +1,6 @@
 # radiosh
 
-A minimalist, lightning-fast terminal radio player written in pure Bash.
+A minimalist, lightning-fast terminal radio player written in Bash.
 
 Features a searchable station database, favorite management, and Vim-style navigation.
 
