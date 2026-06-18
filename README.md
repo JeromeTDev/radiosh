@@ -26,7 +26,7 @@ Features a searchable station database, favorite management, and Vim-style navig
 Clone the repository:
 
 ```bash
-git clone https://github.com/woodz-dot/sh-radio.git
+git clone git@github.com:JeromeTDev/radiosh.git
 cd sh-radio
 ```
 
