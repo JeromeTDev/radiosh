@@ -27,7 +27,7 @@ Clone the repository:
 
 ```bash
 git clone git@github.com:JeromeTDev/radiosh.git
-cd sh-radio
+cd radiosh
 ```
 
 Make the script executable:
