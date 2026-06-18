@@ -4,6 +4,7 @@
 BINARY_NAME="radiosh"
 INSTALL_DIR="$HOME/.local/bin"
 DEST="$INSTALL_DIR/$BINARY_NAME"
+DEPENDENCIES=(fzf mpv jq curl)
 
 draw_box() {
   local msg="Now Playing: $1"
@@ -15,8 +16,148 @@ draw_box() {
   echo -e "╚${edge}╝\e[0m\n"
 }
 
+get_missing_dependencies() {
+  local missing=()
+  local tool
+
+  for tool in "${DEPENDENCIES[@]}"; do
+    if ! command -v "$tool" &>/dev/null; then
+      missing+=("$tool")
+    fi
+  done
+
+  [ ${#missing[@]} -eq 0 ] && return 0
+
+  printf '%s\n' "${missing[@]}"
+}
+
+print_dependency_help() {
+  local missing=("$@")
+
+  [ ${#missing[@]} -eq 0 ] && return 0
+
+  echo "Missing dependencies: ${missing[*]}"
+  echo
+
+  if command -v apt-get &>/dev/null; then
+    echo "Install on Debian/Ubuntu:"
+    echo "  sudo apt-get install ${missing[*]}"
+    return
+  fi
+
+  if command -v dnf &>/dev/null; then
+    echo "Install on Fedora:"
+    echo "  sudo dnf install ${missing[*]}"
+    return
+  fi
+
+  if command -v pacman &>/dev/null; then
+    echo "Install on Arch:"
+    echo "  sudo pacman -S ${missing[*]}"
+    return
+  fi
+
+  if command -v zypper &>/dev/null; then
+    echo "Install on openSUSE:"
+    echo "  sudo zypper install ${missing[*]}"
+    return
+  fi
+
+  if command -v brew &>/dev/null; then
+    echo "Install with Homebrew:"
+    echo "  brew install ${missing[*]}"
+    return
+  fi
+
+  echo "Install them with your system package manager and re-run radiosh."
+}
+
+install_dependencies() {
+  local missing=("$@")
+
+  [ ${#missing[@]} -eq 0 ] && return 0
+
+  if command -v apt-get &>/dev/null; then
+    sudo apt-get install "${missing[@]}"
+    return
+  fi
+
+  if command -v dnf &>/dev/null; then
+    sudo dnf install "${missing[@]}"
+    return
+  fi
+
+  if command -v pacman &>/dev/null; then
+    sudo pacman -S "${missing[@]}"
+    return
+  fi
+
+  if command -v zypper &>/dev/null; then
+    sudo zypper install "${missing[@]}"
+    return
+  fi
+
+  if command -v brew &>/dev/null; then
+    brew install "${missing[@]}"
+    return
+  fi
+
+  echo "Could not determine a supported package manager."
+  print_dependency_help "${missing[@]}"
+  return 1
+}
+
+print_help() {
+  cat <<EOF
+Usage: $BINARY_NAME [option]
+
+Options:
+  --help          Show this help message
+  --install       Validate dependencies and install radiosh to ~/.local/bin
+  --install-deps  Install missing dependencies with a supported package manager
+
+Without options, radiosh starts the interactive player.
+EOF
+}
+
+require_dependencies() {
+  mapfile -t missing < <(get_missing_dependencies)
+
+  if [ ${#missing[@]} -gt 0 ]; then
+    print_dependency_help "${missing[@]}"
+    exit 1
+  fi
+}
+
+if [[ "$1" == "--help" || "$1" == "-h" ]]; then
+  print_help
+  exit 0
+fi
+
+if [[ "$1" == "--install-deps" ]]; then
+  mapfile -t missing < <(get_missing_dependencies)
+
+  if [ ${#missing[@]} -eq 0 ]; then
+    echo "All dependencies are already installed."
+    exit 0
+  fi
+
+  echo "Installing missing dependencies: ${missing[*]}"
+  install_dependencies "${missing[@]}"
+  exit $?
+fi
+
 # 2. Installation Logic
 if [[ "$1" == "--install" ]]; then
+  mapfile -t missing < <(get_missing_dependencies)
+
+  if [ ${#missing[@]} -gt 0 ]; then
+    print_dependency_help "${missing[@]}"
+    echo
+    echo "Run '$0 --install-deps' to install them automatically first."
+    exit 1
+  fi
+
   echo "Installing $BINARY_NAME..."
   mkdir -p "$INSTALL_DIR"
   if cp "$0" "$DEST"; then
@@ -38,12 +179,7 @@ if [[ "$1" == "--install" ]]; then
 fi
 
 # 3. Check Dependencies
-for tool in fzf mpv jq curl; do
-  if ! command -v "$tool" &>/dev/null; then
-    echo "Error: '$tool' is not installed."
-    exit 1
-  fi
-done
+require_dependencies
 
 FAVORITES_FILE="$HOME/.config/mpv/radio.m3u"
 mkdir -p "$(dirname "$FAVORITES_FILE")"

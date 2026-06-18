@@ -16,6 +16,8 @@ Features a searchable station database, favorite management, and Vim-style navig
 
 ## Prerequisites
 
+radiosh needs these tools at runtime:
+
 - [fzf](https://github.com/junegunn/fzf) — Fuzzy finder for the interface
 - [mpv](https://mpv.io/) — The engine that plays the audio stream
 - [jq](https://stedolan.github.io/jq/) — To process API search results
@@ -42,7 +44,17 @@ Run the built-in installer:
 ./radiosh --install
 ```
 
-This will copy the script to `~/.local/bin/radiosh`.
+This validates the required dependencies and copies the script to `~/.local/bin/radiosh`.
+
+If dependencies are missing, install them first with:
+
+```bash
+./radiosh --install-deps
+```
+
+Supported package managers for automatic dependency installation are `apt-get`, `dnf`, `pacman`, `zypper`, and `brew`.
+
+If you prefer, you can also install the dependencies manually using your system package manager and then run `./radiosh --install` again.
 
 Update your PATH (if not already done):
 
@@ -69,6 +81,18 @@ radiosh
 - Select a saved favorite to play immediately
 - Select `__ONLINE_SEARCH__` to find new stations
 - Press `y` after playing an online station to add it to your favorites
+
+## CLI Options
+
+```text
+radiosh --help
+radiosh --install
+radiosh --install-deps
+```
+
+- `--help` shows the available command-line options
+- `--install` checks dependencies and installs `radiosh` to `~/.local/bin`
+- `--install-deps` installs missing runtime dependencies using a supported package manager
 
 ## Configuration
 
