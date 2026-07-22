@@ -244,6 +244,41 @@ add_favorite() {
   echo "Added!"
 }
 
+update_favorite_url() {
+  local wanted_name=$1
+  local old_url=$2
+  local new_url=$3
+  local temp_file
+  local record
+  local normalized
+  local name
+  local url
+  local updated=false
+
+  [ -f "$FAVORITES_FILE" ] || return 1
+  temp_file=$(mktemp "${FAVORITES_FILE}.tmp.XXXXXX") || return 1
+
+  while IFS= read -r record || [ -n "$record" ]; do
+    if normalized=$(normalize_station_record "$record"); then
+      name=${normalized%%$'\t'*}
+      url=${normalized#*$'\t'}
+      if [ "$name" = "$wanted_name" ] && [ "$url" = "$old_url" ]; then
+        printf '%s\t%s\n' "$name" "$new_url" >>"$temp_file"
+        updated=true
+        continue
+      fi
+    fi
+    printf '%s\n' "$record" >>"$temp_file"
+  done <"$FAVORITES_FILE"
+
+  if [ "$updated" = true ]; then
+    mv "$temp_file" "$FAVORITES_FILE"
+  else
+    rm -f "$temp_file"
+    return 1
+  fi
+}
+
 select_main_menu_item() {
   {
     list_favorites
@@ -286,6 +321,33 @@ search_stations() {
       --delimiter=$'\t' --with-nth=1 "${FZF_OPTS[@]}"
 }
 
+find_alternate_streams() {
+  local name=$1
+  local current_url=$2
+  local api_result
+
+  if ! api_result=$(curl --fail --silent --show-error --max-time 10 --get \
+    --data-urlencode "name=$name" --data 'hidebroken=true' --data 'limit=50' "$API_URL"); then
+    return 1
+  fi
+
+  jq -r --arg name "$name" --arg current "$current_url" '
+    [
+      .[] |
+      select(.name == $name) |
+      {
+        url: (.url_resolved // .url // ""),
+        rank: (if ((.codec // "") | ascii_downcase) == "mp3" then 0 else 1 end),
+        votes: (.votes // 0)
+      } |
+      select(.url != "" and .url != $current)
+    ] |
+    sort_by([.rank, -(.votes)]) |
+    reduce .[] as $stream ([]; if any(.[]; .url == $stream.url) then . else . + [$stream] end) |
+    .[].url
+  ' <<<"$api_result"
+}
+
 prompt_to_add_favorite() {
   local name=$1
   local url=$2
@@ -310,11 +372,45 @@ prompt_to_add_favorite() {
   done
 }
 
+play_stream() {
+  local url=$1
+
+  # mpv expands this property expression; the shell must pass it literally.
+  # shellcheck disable=SC2016
+  mpv --no-video --really-quiet --terminal=yes \
+    --term-playing-msg='🎵 Song: ${metadata/by-key/icy-title}' -- "$url"
+}
+
+play_stream_via_curl() {
+  local url=$1
+  local path=${url%%\?*}
+  local format_options=()
+  local statuses
+
+  case "$path" in
+    *.mp3) format_options=(--demuxer=lavf --demuxer-lavf-format=mp3) ;;
+    *.aac) format_options=(--demuxer=lavf --demuxer-lavf-format=aac) ;;
+  esac
+
+  # Some Icecast servers reset FFmpeg's TLS connection but work through curl.
+  curl --fail --silent --show-error --location --connect-timeout 5 \
+    --retry 3 --retry-delay 1 --retry-all-errors -- "$url" |
+    mpv --no-video --really-quiet --terminal=yes "${format_options[@]}" -- -
+  statuses=("${PIPESTATUS[@]}")
+
+  # curl normally reports a broken pipe when the user quits mpv; mpv's status
+  # is the meaningful result for this transport.
+  return "${statuses[1]}"
+}
+
 play_station() {
   local record=$1
   local offer_favorite=${2:-false}
   local name=${record%%$'\t'*}
   local url=${record#*$'\t'}
+  local working_url=$url
+  local alternate_url
+  local alternate_urls=()
 
   if [ -z "$name" ] || [ -z "$url" ] || [ "$name" = "$url" ]; then
     echo "Error: the selected station is missing a playable URL." >&2
@@ -322,16 +418,42 @@ play_station() {
   fi
 
   draw_box "$name"
-  # mpv expands this property expression; the shell must pass it literally.
-  # shellcheck disable=SC2016
-  if ! mpv --no-video --really-quiet --terminal=yes \
-    --term-playing-msg='🎵 Song: ${metadata/by-key/icy-title}' -- "$url"; then
-    echo "Error: mpv could not play '$name'." >&2
-    return 1
+  if ! play_stream "$url"; then
+    echo "The saved stream failed. Looking for a working stream..." >&2
+    working_url=
+
+    while IFS= read -r alternate_url; do
+      [ -n "$alternate_url" ] || continue
+      alternate_urls+=("$alternate_url")
+      echo "Trying an alternate stream..." >&2
+      if play_stream "$alternate_url"; then
+        working_url=$alternate_url
+        break
+      fi
+    done < <(find_alternate_streams "$name" "$url")
+
+    if [ -z "$working_url" ]; then
+      echo "Trying compatibility transport..." >&2
+      for alternate_url in "${alternate_urls[@]}" "$url"; do
+        if play_stream_via_curl "$alternate_url"; then
+          working_url=$alternate_url
+          break
+        fi
+      done
+    fi
+
+    if [ -z "$working_url" ]; then
+      echo "Error: no working stream was found for '$name'." >&2
+      return 1
+    fi
+
+    if update_favorite_url "$name" "$url" "$working_url"; then
+      echo "Updated the favorite with the working stream."
+    fi
   fi
 
   if [ "$offer_favorite" = true ]; then
-    prompt_to_add_favorite "$name" "$url"
+    prompt_to_add_favorite "$name" "$working_url"
   fi
 }
 

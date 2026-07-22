@@ -56,11 +56,23 @@ assert_equal 'Added!' "$output" 'adds a new favorite'
 assert_equal $'New station\thttps://example.test/new' "$(tail -n 1 "$FAVORITES_FILE")" \
   'writes new favorites in an unambiguous tab-separated format'
 
+update_favorite_url 'New station' 'https://example.test/new' 'https://example.test/refreshed'
+assert_equal $'New station\thttps://example.test/refreshed' "$(tail -n 1 "$FAVORITES_FILE")" \
+  'updates a stale favorite URL atomically'
+
 assert_status 1 'rejects an empty search before making a request' search_stations '   '
 assert_status 1 'rejects malformed station records' normalize_station_record 'not a station'
 assert_status 1 'rejects records with no URL' normalize_station_record $'Station\t'
 
 assert_status 2 'rejects unknown command-line options' main '--wat'
+
+CURL_MPV_LOG="$TEST_TMP/curl-mpv-log"
+PATH="$ROOT/tests/fixtures:$PATH" \
+  RADIOSH_MPV_LOG="$CURL_MPV_LOG" \
+  RADIOSH_MPV_FAIL_PATTERN='example.test' \
+  play_stream_via_curl 'https://example.test/live.mp3'
+assert_equal '0' "$?" 'plays through curl when mpv cannot open a stream directly'
+assert_equal '-' "$(tail -n 1 "$CURL_MPV_LOG")" 'pipes curl transport into mpv stdin'
 
 FLOW_HOME="$TEST_TMP/flow-home"
 FLOW_FAVORITES="$TEST_TMP/flow-favorites"
@@ -70,18 +82,24 @@ FLOW_OUTPUT=$(printf 'chill\ny\n' | env \
   RADIOSH_FAVORITES_FILE="$FLOW_FAVORITES" \
   RADIOSH_FZF_STATE="$TEST_TMP/fzf-state" \
   RADIOSH_MPV_LOG="$TEST_TMP/mpv-log" \
+  RADIOSH_MPV_FAIL_PATTERN='.aac' \
   "$ROOT/radiosh" 2>&1)
 FLOW_STATUS=$?
 
 assert_equal '0' "$FLOW_STATUS" 'completes the online search, playback, and save flow'
-assert_equal $'- 0 N - Chillout on Radio\thttps://example.test/live?x=a|b' \
-  "$(cat "$FLOW_FAVORITES")" 'saves the selected station from the full flow'
-assert_equal 'https://example.test/live?x=a|b' "$(cat "$TEST_TMP/mpv-log")" \
-  'passes the complete stream URL to mpv'
+assert_equal $'- 0 N - Chillout on Radio\thttps://example.test/live.mp3?x=a|b' \
+  "$(cat "$FLOW_FAVORITES")" 'saves the recovered station URL from the full flow'
+assert_equal $'https://example.test/live.aac?x=a|b\nhttps://example.test/live.mp3?x=a|b' \
+  "$(cat "$TEST_TMP/mpv-log")" 'retries playback with the complete alternate stream URL'
 if [[ "$FLOW_OUTPUT" == *'Added!'* ]]; then
   assert_equal 'present' 'present' 'confirms that the favorite was added'
 else
   assert_equal 'present' 'missing' 'confirms that the favorite was added'
+fi
+if [[ "$FLOW_OUTPUT" == *'Trying an alternate stream...'* ]]; then
+  assert_equal 'present' 'present' 'reports automatic stream recovery'
+else
+  assert_equal 'present' 'missing' 'reports automatic stream recovery'
 fi
 
 INSTALL_DIR="$TEST_TMP/install/bin"

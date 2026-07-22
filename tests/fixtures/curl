@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 
-printf '%s\n' '[{"name":"- 0 N - Chillout on Radio","url":"https://fallback.invalid","url_resolved":"https://example.test/live?x=a|b","votes":42}]'
+printf '%s\n' '[{"name":"- 0 N - Chillout on Radio","url":"https://fallback.invalid/aac","url_resolved":"https://example.test/live.aac?x=a|b","codec":"AAC+","votes":42},{"name":"- 0 N - Chillout on Radio","url":"https://fallback.invalid/mp3","url_resolved":"https://example.test/live.mp3?x=a|b","codec":"MP3","votes":30}]'
