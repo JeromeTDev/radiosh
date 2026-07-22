@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+state=${RADIOSH_FZF_STATE:?}
+count=0
+[ -f "$state" ] && read -r count <"$state"
+count=$((count + 1))
+printf '%s\n' "$count" >"$state"
+
+if [ "$count" -eq 1 ]; then
+  while IFS= read -r _; do :; done
+  printf '%s\n' '__ONLINE_SEARCH__'
+else
+  IFS= read -r selection
+  printf '%s\n' "$selection"
+fi
