@@ -85,8 +85,8 @@ radiosh
 Useful keybindings while listening:
 ```text
 SPACE --> Play/Pause
-9     --> Volume up
-0     --> Volume down
+9     --> Volume down
+0     --> Volume up
 m     --> Mute
 q     --> Exit
 ```
