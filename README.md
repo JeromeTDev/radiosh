@@ -82,6 +82,15 @@ radiosh
 - Select `__ONLINE_SEARCH__` to find new stations
 - Press `y` after playing an online station to add it to your favorites
 
+Useful keybindings while listening:
+```text
+SPACE --> Play/Pause
+9     --> Volume up
+0     --> Volume down
+m     --> Mute
+q     --> Exit
+```
+
 ## CLI Options
 
 ```text
