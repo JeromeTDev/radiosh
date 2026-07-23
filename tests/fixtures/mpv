@@ -1,8 +1,0 @@
-#!/usr/bin/env bash
-
-url=${*: -1}
-printf '%s\n' "$url" >>"${RADIOSH_MPV_LOG:?}"
-
-if [ -n "${RADIOSH_MPV_FAIL_PATTERN:-}" ] && [[ "$url" == *"$RADIOSH_MPV_FAIL_PATTERN"* ]]; then
-  exit 1
-fi
