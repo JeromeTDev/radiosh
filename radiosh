@@ -1,15 +1,26 @@
 #!/usr/bin/env bash
 
-# 1. Define Variables
 BINARY_NAME="radiosh"
-INSTALL_DIR="$HOME/.local/bin"
+INSTALL_DIR="${RADIOSH_INSTALL_DIR:-$HOME/.local/bin}"
 DEST="$INSTALL_DIR/$BINARY_NAME"
 DEPENDENCIES=(fzf mpv jq curl)
+API_URL="${RADIOSH_API_URL:-https://all.api.radio-browser.info/json/stations/search}"
+FAVORITES_FILE="${RADIOSH_FAVORITES_FILE:-${XDG_CONFIG_HOME:-$HOME/.config}/mpv/radio.m3u}"
+
+FZF_OPTS=(
+  --bind 'h:up,j:down,k:up,l:accept'
+  --reverse
+  --height 40%
+  --ansi
+)
 
 draw_box() {
   local msg=" Now Playing: $1 "
   local len=${#msg}
-  local edge=$(printf '═%.0s' $(seq 1 $len))
+  local edge
+
+  printf -v edge '%*s' "$len" ''
+  edge=${edge// /═}
   printf '\n\033[1;32m╔%s╗\n║%s║\n╚%s╝\033[0m\n' "$edge" "$msg" "$edge"
 }
 
@@ -23,15 +34,14 @@ get_missing_dependencies() {
     fi
   done
 
-  [ ${#missing[@]} -eq 0 ] && return 0
-
+  [ "${#missing[@]}" -eq 0 ] && return 0
   printf '%s\n' "${missing[@]}"
 }
 
 print_dependency_help() {
   local missing=("$@")
 
-  [ ${#missing[@]} -eq 0 ] && return 0
+  [ "${#missing[@]}" -eq 0 ] && return 0
 
   echo "Missing dependencies: ${missing[*]}"
   echo
@@ -72,7 +82,7 @@ print_dependency_help() {
 install_dependencies() {
   local missing=("$@")
 
-  [ ${#missing[@]} -eq 0 ] && return 0
+  [ "${#missing[@]}" -eq 0 ] && return 0
 
   if command -v apt-get &>/dev/null; then
     sudo apt-get install "${missing[@]}"
@@ -110,7 +120,7 @@ Usage: $BINARY_NAME [option]
 
 Options:
   --help          Show this help message
-  --install       Validate dependencies and install radiosh to ~/.local/bin
+  --install       Validate dependencies and install radiosh to $INSTALL_DIR
   --install-deps  Install missing dependencies with a supported package manager
 
 Without options, radiosh starts the interactive player.
@@ -118,121 +128,384 @@ EOF
 }
 
 require_dependencies() {
-  mapfile -t missing < <(get_missing_dependencies)
+  local missing=()
+  local tool
 
-  if [ ${#missing[@]} -gt 0 ]; then
+  while IFS= read -r tool; do
+    [ -n "$tool" ] && missing+=("$tool")
+  done < <(get_missing_dependencies)
+
+  if [ "${#missing[@]}" -gt 0 ]; then
     print_dependency_help "${missing[@]}"
-    exit 1
+    return 1
   fi
 }
 
-if [[ "$1" == "--help" || "$1" == "-h" ]]; then
-  print_help
-  exit 0
-fi
+install_radiosh() {
+  local missing=()
+  local source_path
+  local destination_path
+  local tool
 
-if [[ "$1" == "--install-deps" ]]; then
-  mapfile -t missing < <(get_missing_dependencies)
-
-  if [ ${#missing[@]} -eq 0 ]; then
-    echo "All dependencies are already installed."
-    exit 0
-  fi
-
-  echo "Installing missing dependencies: ${missing[*]}"
-  install_dependencies "${missing[@]}"
-  exit $?
-fi
-
-# 2. Installation Logic
-if [[ "$1" == "--install" ]]; then
-  mapfile -t missing < <(get_missing_dependencies)
-
-  if [ ${#missing[@]} -gt 0 ]; then
+  while IFS= read -r tool; do
+    [ -n "$tool" ] && missing+=("$tool")
+  done < <(get_missing_dependencies)
+  if [ "${#missing[@]}" -gt 0 ]; then
     print_dependency_help "${missing[@]}"
     echo
     echo "Run '$0 --install-deps' to install them automatically first."
-    exit 1
+    return 1
   fi
 
-  echo "Installing $BINARY_NAME..."
-  mkdir -p "$INSTALL_DIR"
-  if cp "$0" "$DEST"; then
-    chmod +x "$DEST"
-    echo "✅ Successfully copied to $DEST."
-    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-      echo "⚠️  NOTE: $INSTALL_DIR is not in your PATH yet."
-      echo "Add this to your .bashrc or .config/fish/config.fish:"
-      echo "  Bash/Zsh: export PATH=\"\$HOME/.local/bin:\$PATH\""
-      echo "  Fish:     fish_add_path \$HOME/.local/bin"
-    else
-      echo "🚀 $BINARY_NAME is ready!"
-    fi
+  mkdir -p "$INSTALL_DIR" || return 1
+  source_path=$(realpath "$0" 2>/dev/null || printf '%s' "$0")
+  destination_path=$(realpath "$DEST" 2>/dev/null || printf '%s' "$DEST")
+
+  if [ "$source_path" = "$destination_path" ]; then
+    echo "$BINARY_NAME is already installed at $DEST."
   else
-    echo "❌ Error copying to $DEST"
-    exit 1
-  fi
-  exit 0
-fi
-
-# 3. Check Dependencies
-require_dependencies
-
-FAVORITES_FILE="$HOME/.config/mpv/radio.m3u"
-mkdir -p "$(dirname "$FAVORITES_FILE")"
-touch "$FAVORITES_FILE"
-
-FZF_OPTS=(
-  --bind 'h:up,j:down,k:up,l:accept'
-  --reverse
-  --height 40%
-  --ansi
-)
-
-# Main Menu
-CHOICE=$( (
-  cat "$FAVORITES_FILE"
-  echo "__ONLINE_SEARCH__"
-) | fzf --prompt="Select Station or Online Search: " "${FZF_OPTS[@]}")
-
-[ -z "$CHOICE" ] && exit 0
-
-if [ "$CHOICE" == "__ONLINE_SEARCH__" ]; then
-  read -rp "Search Query: " QUERY
-  QUERY_ENC=$(jq -rn --arg q "$QUERY" '$q | @uri')
-
-  API_URL="https://de1.api.radio-browser.info/json/stations/search?name=$QUERY_ENC&limit=20"
-  API_RESULT=$(curl -s --max-time 10 "$API_URL")
-
-  if [ -z "$API_RESULT" ] || [ "$API_RESULT" = "[]" ]; then
-    echo "Error: No results or API unreachable. Check your internet connection."
-    exit 1
+    echo "Installing $BINARY_NAME..."
+    if ! cp "$0" "$DEST" || ! chmod +x "$DEST"; then
+      echo "❌ Error copying to $DEST"
+      return 1
+    fi
+    echo "✅ Successfully copied to $DEST."
   fi
 
-  CHOICE=$(echo "$API_RESULT" |
-    jq -r 'sort_by(.votes) | reverse | .[] | "\(.name) | \(.url)"' |
-    fzf --prompt="Select Online Station: " "${FZF_OPTS[@]}")
+  if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+    echo "⚠️  NOTE: $INSTALL_DIR is not in your PATH yet."
+    echo "Add this to your shell configuration:"
+    echo "  Bash/Zsh: export PATH=\"\$HOME/.local/bin:\$PATH\""
+    echo "  Fish:     fish_add_path \$HOME/.local/bin"
+  else
+    echo "🚀 $BINARY_NAME is ready!"
+  fi
+}
 
-  NAME=$(echo "$CHOICE" | cut -d'|' -f1 | xargs)
-  URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
+# Convert both the historical "name | URL" format and the current tab-separated
+# format to one internal representation. URLs may themselves contain pipes.
+normalize_station_record() {
+  local record=$1
+  local name
+  local url
 
-  if [ -n "$URL" ]; then
-    draw_box "$NAME"
-    mpv --no-video --really-quiet --terminal=yes --term-playing-msg="🎵 Song: \${metadata/by-key/icy-title}" "$URL"
+  if [[ "$record" == *$'\t'* ]]; then
+    name=${record%%$'\t'*}
+    url=${record#*$'\t'}
+  elif [[ "$record" == *' | '* ]]; then
+    name=${record%%' | '*}
+    url=${record#*' | '}
+  else
+    return 1
+  fi
 
-    read -rp "Add to favorites? (y/N) " RESP
-    if [[ "$RESP" =~ ^[Yy]$ ]]; then
-      grep -Fxq "$CHOICE" "$FAVORITES_FILE" || echo "$CHOICE" >>"$FAVORITES_FILE"
-      echo "Added!"
+  [ -n "$name" ] && [ -n "$url" ] || return 1
+  printf '%s\t%s\n' "$name" "$url"
+}
+
+list_favorites() {
+  local record
+
+  [ -f "$FAVORITES_FILE" ] || return 0
+  while IFS= read -r record || [ -n "$record" ]; do
+    [ -z "$record" ] && continue
+    normalize_station_record "$record" || true
+  done <"$FAVORITES_FILE"
+}
+
+favorite_exists() {
+  local wanted_name=$1
+  local wanted_url=$2
+  local record
+  local name
+  local url
+
+  while IFS= read -r record; do
+    name=${record%%$'\t'*}
+    url=${record#*$'\t'}
+    if [ "$name" = "$wanted_name" ] && [ "$url" = "$wanted_url" ]; then
+      return 0
+    fi
+  done < <(list_favorites)
+  return 1
+}
+
+add_favorite() {
+  local name=$1
+  local url=$2
+
+  if favorite_exists "$name" "$url"; then
+    echo "Already in favorites."
+    return 0
+  fi
+
+  mkdir -p "$(dirname "$FAVORITES_FILE")" || return 1
+  printf '%s\t%s\n' "$name" "$url" >>"$FAVORITES_FILE"
+  echo "Added!"
+}
+
+update_favorite_url() {
+  local wanted_name=$1
+  local old_url=$2
+  local new_url=$3
+  local temp_file
+  local record
+  local normalized
+  local name
+  local url
+  local updated=false
+
+  [ -f "$FAVORITES_FILE" ] || return 1
+  temp_file=$(mktemp "${FAVORITES_FILE}.tmp.XXXXXX") || return 1
+
+  while IFS= read -r record || [ -n "$record" ]; do
+    if normalized=$(normalize_station_record "$record"); then
+      name=${normalized%%$'\t'*}
+      url=${normalized#*$'\t'}
+      if [ "$name" = "$wanted_name" ] && [ "$url" = "$old_url" ]; then
+        printf '%s\t%s\n' "$name" "$new_url" >>"$temp_file"
+        updated=true
+        continue
+      fi
+    fi
+    printf '%s\n' "$record" >>"$temp_file"
+  done <"$FAVORITES_FILE"
+
+  if [ "$updated" = true ]; then
+    mv "$temp_file" "$FAVORITES_FILE"
+  else
+    rm -f "$temp_file"
+    return 1
+  fi
+}
+
+select_main_menu_item() {
+  {
+    list_favorites
+    printf '%s\n' '__ONLINE_SEARCH__'
+  } | fzf --prompt="Select Station or Online Search: " \
+    --delimiter=$'\t' --with-nth=1 "${FZF_OPTS[@]}"
+}
+
+search_stations() {
+  local query=$1
+  local api_result
+
+  if [ -z "${query//[[:space:]]/}" ]; then
+    echo "Search cancelled: enter a non-empty query." >&2
+    return 1
+  fi
+
+  if ! api_result=$(curl --fail --silent --show-error --max-time 10 --get \
+    --data-urlencode "name=$query" --data 'limit=20' "$API_URL"); then
+    echo "Error: Radio Browser could not be reached." >&2
+    return 1
+  fi
+
+  if ! jq -e 'type == "array"' >/dev/null 2>&1 <<<"$api_result"; then
+    echo "Error: Radio Browser returned an invalid response." >&2
+    return 1
+  fi
+
+  if [ "$(jq 'length' <<<"$api_result")" -eq 0 ]; then
+    echo "No stations found for '$query'." >&2
+    return 1
+  fi
+
+  jq -r '
+    sort_by(.votes // 0) | reverse | .[] |
+    select((.name // "") != "" and ((.url_resolved // .url // "") != "")) |
+    [.name, (.url_resolved // .url)] | @tsv
+  ' <<<"$api_result" |
+    fzf --prompt="Select Online Station: " \
+      --delimiter=$'\t' --with-nth=1 "${FZF_OPTS[@]}"
+}
+
+find_alternate_streams() {
+  local name=$1
+  local current_url=$2
+  local api_result
+
+  if ! api_result=$(curl --fail --silent --show-error --max-time 10 --get \
+    --data-urlencode "name=$name" --data 'hidebroken=true' --data 'limit=50' "$API_URL"); then
+    return 1
+  fi
+
+  jq -r --arg name "$name" --arg current "$current_url" '
+    [
+      .[] |
+      select(.name == $name) |
+      {
+        url: (.url_resolved // .url // ""),
+        rank: (if ((.codec // "") | ascii_downcase) == "mp3" then 0 else 1 end),
+        votes: (.votes // 0)
+      } |
+      select(.url != "" and .url != $current)
+    ] |
+    sort_by([.rank, -(.votes)]) |
+    reduce .[] as $stream ([]; if any(.[]; .url == $stream.url) then . else . + [$stream] end) |
+    .[].url
+  ' <<<"$api_result"
+}
+
+prompt_to_add_favorite() {
+  local name=$1
+  local url=$2
+  local response
+
+  while true; do
+    if ! read -rp "Add to favorites? (y/N) " response; then
+      echo
+      return 0
+    fi
+
+    case "$response" in
+      [Yy] | [Yy][Ee][Ss])
+        add_favorite "$name" "$url"
+        return
+        ;;
+      '' | [Nn] | [Nn][Oo])
+        return 0
+        ;;
+      *) echo "Please answer y or n." ;;
+    esac
+  done
+}
+
+play_stream() {
+  local url=$1
+
+  # mpv expands this property expression; the shell must pass it literally.
+  # shellcheck disable=SC2016
+  mpv --no-video --really-quiet --terminal=yes \
+    --term-playing-msg='🎵 Song: ${metadata/by-key/icy-title}' -- "$url"
+}
+
+play_stream_via_curl() {
+  local url=$1
+  local path=${url%%\?*}
+  local format_options=()
+  local statuses
+
+  case "$path" in
+    *.mp3) format_options=(--demuxer=lavf --demuxer-lavf-format=mp3) ;;
+    *.aac) format_options=(--demuxer=lavf --demuxer-lavf-format=aac) ;;
+  esac
+
+  # Some Icecast servers reset FFmpeg's TLS connection but work through curl.
+  curl --fail --silent --show-error --location --connect-timeout 5 \
+    --retry 3 --retry-delay 1 --retry-all-errors -- "$url" |
+    mpv --no-video --really-quiet --terminal=yes "${format_options[@]}" -- -
+  statuses=("${PIPESTATUS[@]}")
+
+  # curl normally reports a broken pipe when the user quits mpv; mpv's status
+  # is the meaningful result for this transport.
+  return "${statuses[1]}"
+}
+
+play_station() {
+  local record=$1
+  local offer_favorite=${2:-false}
+  local name=${record%%$'\t'*}
+  local url=${record#*$'\t'}
+  local working_url=$url
+  local alternate_url
+  local alternate_urls=()
+
+  if [ -z "$name" ] || [ -z "$url" ] || [ "$name" = "$url" ]; then
+    echo "Error: the selected station is missing a playable URL." >&2
+    return 1
+  fi
+
+  draw_box "$name"
+  if ! play_stream "$url"; then
+    echo "The saved stream failed. Looking for a working stream..." >&2
+    working_url=
+
+    while IFS= read -r alternate_url; do
+      [ -n "$alternate_url" ] || continue
+      alternate_urls+=("$alternate_url")
+      echo "Trying an alternate stream..." >&2
+      if play_stream "$alternate_url"; then
+        working_url=$alternate_url
+        break
+      fi
+    done < <(find_alternate_streams "$name" "$url")
+
+    if [ -z "$working_url" ]; then
+      echo "Trying compatibility transport..." >&2
+      for alternate_url in "${alternate_urls[@]}" "$url"; do
+        if play_stream_via_curl "$alternate_url"; then
+          working_url=$alternate_url
+          break
+        fi
+      done
+    fi
+
+    if [ -z "$working_url" ]; then
+      echo "Error: no working stream was found for '$name'." >&2
+      return 1
+    fi
+
+    if update_favorite_url "$name" "$url" "$working_url"; then
+      echo "Updated the favorite with the working stream."
     fi
   fi
-else
-  # Play favorite directly
-  NAME=$(echo "$CHOICE" | cut -d'|' -f1 | xargs)
-  URL=$(echo "$CHOICE" | cut -d'|' -f2 | xargs)
 
-  if [ -n "$URL" ]; then
-    draw_box "$NAME"
-    mpv --no-video --really-quiet --terminal=yes --term-playing-msg="🎵 Song: \${metadata/by-key/icy-title}" "$URL"
+  if [ "$offer_favorite" = true ]; then
+    prompt_to_add_favorite "$name" "$working_url"
   fi
+}
+
+run_player() {
+  local choice
+  local query
+
+  require_dependencies || return 1
+  mkdir -p "$(dirname "$FAVORITES_FILE")" || return 1
+  touch "$FAVORITES_FILE" || return 1
+
+  choice=$(select_main_menu_item) || return 0
+  [ -n "$choice" ] || return 0
+
+  if [ "$choice" = "__ONLINE_SEARCH__" ]; then
+    read -rp "Search Query: " query || return 0
+    if ! choice=$(search_stations "$query"); then
+      return 1
+    fi
+    [ -n "$choice" ] || return 0
+    play_station "$choice" true
+  else
+    play_station "$choice"
+  fi
+}
+
+main() {
+  case "${1:-}" in
+    '') run_player ;;
+    --help | -h) print_help ;;
+    --install-deps)
+      local missing=()
+      local tool
+      while IFS= read -r tool; do
+        [ -n "$tool" ] && missing+=("$tool")
+      done < <(get_missing_dependencies)
+      if [ "${#missing[@]}" -eq 0 ]; then
+        echo "All dependencies are already installed."
+      else
+        echo "Installing missing dependencies: ${missing[*]}"
+        install_dependencies "${missing[@]}"
+      fi
+      ;;
+    --install) install_radiosh ;;
+    *)
+      echo "Unknown option: $1" >&2
+      print_help >&2
+      return 2
+      ;;
+  esac
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
 fi

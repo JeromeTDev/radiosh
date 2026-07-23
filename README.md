@@ -28,7 +28,7 @@ radiosh needs these tools at runtime:
 Clone the repository:
 
 ```bash
-git clone git@github.com:JeromeTDev/radiosh.git
+git clone https://github.com/JeromeTDev/radiosh.git
 cd radiosh
 ```
 
@@ -96,11 +96,13 @@ radiosh --install-deps
 
 ## Configuration
 
-Favorites are stored as a standard M3U playlist at:
+Favorites are stored as tab-separated station names and stream URLs at:
 
 ```
 ~/.config/mpv/radio.m3u
 ```
+
+Favorites written by older radiosh versions in `name | URL` format continue to work.
 
 ## License
 
